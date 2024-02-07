@@ -4,11 +4,19 @@ A little Go program for storing secrets that are protected by a passphrase.
 
 It supports three commands:
 
-- new
-- edit
-- help
+```
+hide new somefile
+hide edit somefile
+hide help
+```
 
-Editing is done in neovim without plugins or write capabilities. To save the secret file, you have to execute the following command:
+The `new` and `edit` commands can also take additional flags which will be passed through to neovim.
+
+```
+hide edit somefile --noplugin
+```
+
+Editing is done in neovim without scratch or write capabilities. To save the secret file, you have to execute the following command:
 
 ```
 :w !hide
@@ -18,11 +26,7 @@ Editing is done in neovim without plugins or write capabilities. To save the sec
 
 We generate an AES key from your passphrase + salt.
 
-Encrypted files are stored in `~/.hide/`.
+Encrypted files are stored in `~/.hide/` with the salt as the first line.
 
 They are edited in neovim. When editing, we place a line at the top of the file which contains the file name, salt, and key. This line is removed before saving, and is only there to prevent keeping the secret or password in an environment variable or other trivially inspected place.
-
-To save the file from neovim, run:
-
-`:w !hide`
 
