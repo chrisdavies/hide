@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
@@ -34,9 +35,10 @@ type DecryptedContent struct {
 }
 
 type CLICommand struct {
-	Command     string
-	Filename    string
-	NeovimFlags []string
+	Command        string
+	Filename       string
+	MaskPassphrase bool
+	NeovimFlags    []string
 }
 
 func main() {
@@ -50,9 +52,9 @@ func main() {
 
 	switch cmd.Command {
 	case "new":
-		err = cmdNew(cmd.Filename, cmd.NeovimFlags)
+		err = cmdNew(cmd)
 	case "edit":
-		err = cmdEdit(cmd.Filename, cmd.NeovimFlags)
+		err = cmdEdit(cmd)
 	case "save":
 		err = cmdSave(os.Stdin)
 	default:
@@ -66,6 +68,7 @@ func main() {
 	}
 }
 
+// qualify returns the fully-qualified location of the specified file
 func qualify(filename string) string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -102,14 +105,15 @@ func nvim(content *DecryptedContent, flags []string) error {
 	return nil
 }
 
-func cmdNew(filename string, flags []string) error {
-	if _, err := os.Stat(qualify(filename)); !os.IsNotExist(err) {
+// cmdNew opens a new file for editing in neovim
+func cmdNew(cmd *CLICommand) error {
+	if _, err := os.Stat(qualify(cmd.Filename)); !os.IsNotExist(err) {
 		if err != nil {
 			return err
 		}
-		return fmt.Errorf("file %s exists and can be edited with 'hide edit foo'", filename)
+		return fmt.Errorf("file %s exists and can be edited with 'hide edit %s'", cmd.Filename, cmd.Filename)
 	}
-	pass, err := confirmPassphrase()
+	pass, err := confirmPassphrase(cmd.MaskPassphrase)
 	if err != nil {
 		return fmt.Errorf("confirmPassphrase %w", err)
 	}
@@ -119,18 +123,19 @@ func cmdNew(filename string, flags []string) error {
 	}
 	content := &DecryptedContent{
 		KeySalt:  keys,
-		Filename: filename,
+		Filename: cmd.Filename,
 		Content:  "\n\nEdit this content, but leave the first line alone!",
 	}
-	return nvim(content, flags)
+	return nvim(content, cmd.NeovimFlags)
 }
 
-func cmdEdit(filename string, flags []string) error {
-	rawContent, err := os.ReadFile(qualify(filename))
+// cmdEdit decrypts the file and displays it in neovim
+func cmdEdit(cmd *CLICommand) error {
+	rawContent, err := os.ReadFile(qualify(cmd.Filename))
 	if err != nil {
 		return fmt.Errorf("os.ReadFile %w", err)
 	}
-	pass, err := readPassphrase("Passphrase:")
+	pass, err := readPassphrase("Passphrase:", cmd.MaskPassphrase)
 	if err != nil {
 		return fmt.Errorf("readPassphrase %w", err)
 	}
@@ -138,8 +143,8 @@ func cmdEdit(filename string, flags []string) error {
 	if err != nil {
 		return fmt.Errorf("decrypt %w", err)
 	}
-	content.Filename = filename
-	return nvim(content, flags)
+	content.Filename = cmd.Filename
+	return nvim(content, cmd.NeovimFlags)
 }
 
 // cmdSave saves the specified file to disk, using the header to encrypt
@@ -246,33 +251,48 @@ func parseCLI(args []string) (*CLICommand, error) {
 		return nil, errors.New("filename parameter is required")
 	}
 	if isNeovimCommand && len(args) > 3 {
-		cmd.NeovimFlags = args[3:]
+		cmd.NeovimFlags = []string{}
+		for _, flag := range args[3:] {
+			if flag == "--mask" {
+				cmd.MaskPassphrase = true
+			} else {
+				cmd.NeovimFlags = append(cmd.NeovimFlags, flag)
+			}
+		}
 	}
 	return cmd, nil
 }
 
 // readPassphrase prompts the user for a passphrase and returns it
-func readPassphrase(prompt string) (string, error) {
+func readPassphrase(prompt string, mask bool) (string, error) {
 	println(prompt)
 	f, err := os.Open("/dev/tty")
 	if err != nil {
 		return "", fmt.Errorf("os.Open /dev/tty %w", err)
 	}
-	result, err := term.ReadPassword(int(f.Fd()))
+	var result string
+	if mask {
+		passBytes, passErr := term.ReadPassword(int(f.Fd()))
+		result = string(passBytes)
+		err = passErr
+	} else {
+		reader := bufio.NewReader(f)
+		result, err = reader.ReadString('\n')
+	}
 	if err != nil {
 		return "", fmt.Errorf("term.ReadPassword %w", err)
 	}
-	return string(result), nil
+	return strings.TrimSpace(result), nil
 }
 
 // confirmPassphrase prompts the user for a passphrase and confirmation, and returns it
-func confirmPassphrase() (string, error) {
+func confirmPassphrase(mask bool) (string, error) {
 	for {
-		phrase, err := readPassphrase("Passphrase: ")
+		phrase, err := readPassphrase("Passphrase: ", mask)
 		if err != nil {
 			return "", err
 		}
-		confirm, err := readPassphrase("Confirm passphrase: ")
+		confirm, err := readPassphrase("Confirm passphrase: ", mask)
 		if err != nil {
 			return "", err
 		}
