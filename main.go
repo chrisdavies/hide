@@ -83,10 +83,9 @@ func nvim(content *DecryptedContent, flags []string) error {
 	cmd := exec.Command("nvim", args...)
 	stdin := new(bytes.Buffer)
 
-	stdin.WriteString(fileHeader(content))
+	stdin.WriteString(fileHeader(content) + "\n")
 	stdin.WriteString(content.Content)
 
-	// cmd.Env = []string{"PATH=" + cmd.Dir + ":" + os.Getenv("PATH")}
 	cmd.Stdin = stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
