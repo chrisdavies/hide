@@ -1,4 +1,4 @@
-module github.com/chrisdavies/safe
+module github.com/chrisdavies/hide
 
 go 1.21.6
 
